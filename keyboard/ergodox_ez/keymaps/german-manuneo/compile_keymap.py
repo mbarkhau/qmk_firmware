@@ -18,9 +18,11 @@ import io
 import re
 import sys
 import json
+import base64
 import unicodedata
 import collections
 import itertools as it
+from io import BytesIO
 
 PY2 = sys.version_info.major == 2
 
@@ -445,55 +447,100 @@ def parse_keymaps(config, valid_keycodes):
 
 #       keymap.c output
 
-USERCODE = """
+USERCODE = r"""
 // Runs just one time when the keyboard initializes.
 void matrix_init_user(void) {
 
 };
 
+#define LED_BLINK_PERIOD 32        // how long a blink lasts
+#define LED_BLINK_DURATION 64      // how long the blinking lasts
+#define LED_FLASH_DURATION 64      // how long a flash lasts
+
+#define LED_MODE_OFF 0
+#define LED_MODE_ON 1
+#define LED_MODE_BLINK 2
+#define LED_MODE_FLASH 3
+
+static uint8_t led_1_mode = 0;
+static uint8_t led_2_mode = 0;
+static uint8_t led_3_mode = 0;
+
+static uint8_t led_1_state = 0;
+static uint8_t led_2_state = 0;
+static uint8_t led_3_state = 0;
+
+
+uint16_t get_led_state(uint8_t *mode, uint8_t *state) {
+    if (*state > 0) {
+        *state -= 1;
+    } else {
+        *mode = LED_MODE_OFF;
+    }
+    switch (*mode) {
+        case LED_MODE_OFF:
+            return 0;
+        case LED_MODE_ON:
+            return 1;
+        case LED_MODE_BLINK:
+            if ((*state & LED_BLINK_PERIOD) > 0) {
+                return 1;
+            }
+            break;
+        case LED_MODE_FLASH:
+            if (*state == 0) {
+                return 1;
+            }
+            break;
+    }
+    return 0;
+}
+
+
 // Runs constantly in the background, in a loop.
 void matrix_scan_user(void) {
-    uint8_t layer = biton32(layer_state);
-
     ergodox_board_led_off();
+
     ergodox_right_led_1_off();
     ergodox_right_led_2_off();
     ergodox_right_led_3_off();
+
+    uint8_t layer = biton32(layer_state);
     switch (layer) {
         case L1:
             ergodox_right_led_1_on();
             break;
         case L2:
+            ergodox_right_led_1_on();
             ergodox_right_led_2_on();
             break;
         case L3:
-            ergodox_right_led_3_on();
-            break;
-        case L4:
-            ergodox_right_led_1_on();
             ergodox_right_led_2_on();
             break;
+        case L4:
+            ergodox_right_led_3_on();
+            break;
         case L5:
+            ergodox_right_led_2_on();
+            ergodox_right_led_3_on();
+            break;
+        case L6:
             ergodox_right_led_1_on();
             ergodox_right_led_3_on();
             break;
-        // case L6:
-        //     ergodox_right_led_2_on();
-        //     ergodox_right_led_3_on();
-        //     break;
-        // case L7:
-        //     ergodox_right_led_1_on();
-        //     ergodox_right_led_2_on();
-        //     ergodox_right_led_3_on();
-        //     break;
+        case L7:
+            ergodox_right_led_1_on();
+            ergodox_right_led_2_on();
+            ergodox_right_led_3_on();
+            break;
         default:
-            ergodox_board_led_off();
             break;
     }
+
 };
 """
 
-MACROCODE = """
+MACROCODE = r"""
 #define UC_MODE_WIN 0
 #define UC_MODE_LINUX 1
 #define UC_MODE_OSX 2
@@ -649,6 +696,9 @@ def iter_keymap_parts(config, keymaps):
     for i, layer_name in enumerate(config['layer_lines']):
         yield '#define L{0:<3} {0:<5}  // {1}\n'.format(i, layer_name)
 
+    for i in range(len(config['layer_lines']), 10):
+        yield '#define L{0:<3} {0:<5}  // Unused\n'.format(i)
+
     yield "\n"
 
     # keymaps
@@ -681,6 +731,152 @@ def iter_keymap_parts(config, keymaps):
     yield USERCODE
 
 
+KEY_IMAGE_DATA = base64.b64decode("".join("""
+iVBORw0KGgoAAAANSUhEUgAAACAAAABACAYAAAB7jnWuAAAABGdBTUEAALGPC/xh
+BQAAAAlwSFlzAAAOwgAADsIBFShKgAAAABh0RVh0U29mdHdhcmUAcGFpbnQubmV0
+IDQuMC45bDN+TgAAAYNJREFUaEPtmd1thDAQhOmALniFDqgDCqANGqABWkC80AES
+r0iUtPEsWslJHB8nbJxEO9II6bR38/kPne3sV2tZFur7nuq6pjzPyXwUw991HAdV
+VeUqjuHPQovNg10UBXVdR+M40rqutO97cHOoyA5vmsb5hdDmYAjdbh7sYRicxTHM
+4ZCM+VMtF3M4ZjvCMeauophmABl7TDhXUUwzANY5ADDbXUW2sRrQY/M80zRNt80A
+8pJ5tdQQ7PqRO2YAIwZwhYolfNs2MsrEoeQFQM9I+FkeXl4AaX3oVtvyAsiESwaA
+cPgsjSMFUAAF+B8A8qJ6xyIF+PsArh+/YpECKIACKIAC3Aa4Ky+AvTGJJS+AvTWL
+JS/A180pQELDeAFg1/Y8pF4CwEkPKMRRjmiMLgOE9hmvAAqgAKkBrh7VxjADvHNY
+HdoMkPy4Hu92AODC4ulhYACoLEuGSHJlAyW/tILsa7u2bR8ZDg62lfTiUoThkDnx
+gH8WVgd6JOrltfzBTGPKPgBEbtGXOHWffgAAAABJRU5ErkJggg==
+""".strip().split("\n")))
+
+
+KEY_SIZES = [
+    (128, 128),  # default
+    (192, 128),  # 1.5 wide
+    (128, 192),  # 1.5 high
+    (128, 256),  # 2 high
+]
+
+
+KEYBOARD_KEY_SIZES = {
+    # These map positions in the parsed layout to
+    # the size of the key
+    'ergodox_ez': [
+        [1, 0, 0, 0, 0, 0, 0],  [0, 0, 0, 0, 0, 0, 1],
+        [1, 0, 0, 0, 0, 0, 2],  [2, 0, 0, 0, 0, 0, 1],
+        [1, 0, 0, 0, 0, 0   ],  [   0, 0, 0, 0, 0, 1],
+        [1, 0, 0, 0, 0, 0, 2],  [2, 0, 0, 0, 0, 0, 1],
+        [0, 0, 0, 0, 0      ],  [      0, 0, 0, 0, 0],
+        [               0, 0],  [0, 0               ],
+        [                  0],  [0                  ],
+        [            3, 3, 0],  [0, 3, 3            ],
+    ]
+}
+
+# coordinates are in terms of ingle width keys
+
+KEYBOARD_KEY_POSITIONS_X = {
+    'ergodox_ez': [
+        [0.5, 2, 3, 4, 5, 6, 7],        [11, 12, 13, 14, 15, 16, 17],
+        [0.5, 2, 3, 4, 5, 6, 7],        [11, 12, 13, 14, 15, 16, 17],
+        [0.5, 2, 3, 4, 5, 6   ],        [    12, 13, 14, 15, 16, 17],
+        [0.5, 2, 3, 4, 5, 6, 7],        [11, 12, 13, 14, 15, 16, 17],
+        [  1, 2, 3, 4, 5      ],        [        13, 14, 15, 16, 17],
+        [                    7, 8], [10, 11                        ],
+        [                       8], [10                            ],
+        [                 6, 7, 8], [10, 11, 12                    ],
+    ]
+}
+
+KEYBOARD_KEY_POSITIONS_Y = {
+    'ergodox_ez': [
+        [0, 0, 0, 0, 0, 0, 0  ],        [  0, 0, 0, 0, 0, 0, 0],
+        [1, 1, 1, 1, 1, 1, 1  ],        [  1, 1, 1, 1, 1, 1, 1],
+        [2, 2, 2, 2, 2, 2     ],        [     2, 2, 2, 2, 2, 2],
+        [3, 3, 3, 3, 3, 3, 2.5],        [2.5, 3, 3, 3, 3, 3, 3],
+        [4, 4, 4, 4, 4        ],        [        4, 4, 4, 4, 4],
+        [                    5, 5], [5, 5                     ],
+        [                       6], [6                        ],
+        [                 6, 6, 7], [7, 6, 6                  ],
+    ]
+}
+
+
+def gen_keymap_image(config, keymaps):
+    from PIL import Image, ImageDraw, ImageOps
+
+    def paste(tgt_img, src_img, pos=(0, 0)):
+        src_w, src_h = src_img.size
+        tgt_w, tgt_h = tgt_img.size
+        x, y = pos
+        if x < 0:
+            x = tgt_w + x
+        if y < 0:
+            y = tgt_h + y
+        tgt_img.paste(src_img, (x, y, x + src_w, y + src_h), mask=src_img)
+
+    def gen_key_img(size=0, color=None):
+        base_img = Image.open(BytesIO(KEY_IMAGE_DATA))
+
+        if isinstance(size, tuple):
+            width, height = size
+        else:
+            width, height = KEY_SIZES[size]
+        center_x = width // 2
+        top = base_img.crop((16, 0, 32, 32))
+        bottom = base_img.crop((16, 32, 32, 64))
+        left = base_img.crop((0, 16, 16, 32))
+        top_left = base_img.crop((0, 0, 32, 32))
+        bottom_left = base_img.crop((0, 32, 32, 64))
+
+        key_img = Image.new('RGBA', size=(width, height))
+        for offset in range(32, center_x, 16):
+            paste(key_img, top, (offset, 0))
+            paste(key_img, bottom, (offset, -32))
+        for offset in range(32, height - 16, 16):
+            paste(key_img, left, (0, offset))
+
+        paste(key_img, top_left, (0, 0))
+        paste(key_img, bottom_left, (0, -32))
+        mirrored = key_img.crop((0, 0, center_x, height))
+        mirrored = ImageOps.mirror(mirrored)
+        paste(key_img, mirrored, (center_x, 0))
+        if color:
+            bg_img = Image.new('RGBA', size=(width, height))
+            draw = ImageDraw.Draw(bg_img)
+            draw.rectangle([(8, 8), (width - 8, height - 8)], color)
+            del draw
+            paste(bg_img, key_img)
+            return bg_img
+        return key_img
+
+    #im = gen_key_img(size=0, color='#A11')
+    #im.save("test.png", "PNG")
+
+    layout_name = config['layout']
+    key_sizes = KEYBOARD_KEY_SIZES[layout_name]
+    key_pos_x = KEYBOARD_KEY_POSITIONS_X[layout_name]
+    key_pos_y = KEYBOARD_KEY_POSITIONS_Y[layout_name]
+    key_config = {}
+    for row_idx, row in enumerate(KEYBOARD_LAYOUTS[layout_name]):
+        for col_idx, key_index in enumerate(row):
+            size = key_sizes[row_idx][col_idx]
+            width, height = KEY_SIZES[size]
+            key_config[key_index] = {
+                'index': key_index,
+                'size': size,
+                'width': width,
+                'height': height,
+                'pos_x': int(key_pos_x[row_idx][col_idx] * 128),
+                'pos_y': int(key_pos_y[row_idx][col_idx] * 128),
+            }
+
+    keys = list(key_config.values())
+    keymap_width = max(k['pos_x'] + k['width'] for k in keys)
+    keymap_height = max(k['pos_y'] + k['height'] for k in keys)
+    keymap_img = Image.new('RGBA', size=(keymap_width, keymap_height))
+    for key_index, key in key_config.items():
+        key_img = gen_key_img((key['width'], key['height']))
+        paste(keymap_img, key_img, pos=(key['pos_x'], key['pos_y']))
+
+    keymap_img.save("keymap.png", 'PNG')
+
 def main(argv=sys.argv[1:]):
     if not argv or '-h' in argv or '--help' in argv:
         print(__doc__)
@@ -704,6 +900,12 @@ def main(argv=sys.argv[1:]):
     with io.open(out_path, mode="w", encoding="utf-8") as fh:
         for part in iter_keymap_parts(config, keymaps):
             fh.write(part)
+
+    try:
+        gen_keymap_image(config, keymaps)
+    except ImportError:
+        print("ImportError 'PIL', Skipping image generation")
+        print("    pip install pillow")
 
 
 if __name__ == '__main__':
