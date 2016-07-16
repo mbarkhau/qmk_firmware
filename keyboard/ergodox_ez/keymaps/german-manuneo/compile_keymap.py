@@ -408,6 +408,9 @@ def parse_code(raw_code, key_prefixes, valid_keycodes):
 
 
 def parse_keymap(config, key_indexes, layer_lines, valid_keycodes):
+    Key = collections.namedtuple('Key', [
+        'code', 'row_index', 'key_index', 'raw_code', 'macro_id', 'uc_hex'
+    ])
     keymap = {}
     raw_codes = list(iter_raw_codes(
         layer_lines, config['filler'], config['separator']
@@ -428,7 +431,9 @@ def parse_keymap(config, key_indexes, layer_lines, valid_keycodes):
             config['macro_ids'].add(macro_id)
         if uc_hex:
             config['unicode_macros'][macro_id] = uc_hex
-        keymap[key_index] = (code, row_index)
+        keymap[key_index] = Key(
+            code, row_index, key_index, raw_code, macro_id, uc_hex,
+        )
     return keymap
 
 
@@ -646,37 +651,37 @@ def iter_keymap_lines(keymap, row_indents=None):
     col = 0
     # first pass, figure out the column widths
     prev_row_index = None
-    for code, row_index in keymap.values():
-        if row_index != prev_row_index:
+    for key in keymap.values():
+        if key.row_index != prev_row_index:
             col = 0
             if row_indents:
-                col = row_indents[row_index]
-        col_widths[col] = max(len(code), col_widths.get(col, 0))
-        prev_row_index = row_index
+                col = row_indents[key.row_index]
+        col_widths[col] = max(len(key.code), col_widths.get(col, 0))
+        prev_row_index = key.row_index
         col += 1
 
     # second pass, yield the cell values
     col = 0
     prev_row_index = None
     for key_index in sorted(keymap):
-        code, row_index = keymap[key_index]
-        if row_index != prev_row_index:
+        key = keymap[key_index]
+        if key.row_index != prev_row_index:
             col = 0
             yield "\n"
             if row_indents:
-                for indent_col in range(row_indents[row_index]):
+                for indent_col in range(row_indents[key.row_index]):
                     pad = " " * (col_widths[indent_col] - 4)
                     yield (" /*-*/" + pad)
-                col = row_indents[row_index]
+                col = row_indents[key.row_index]
         else:
             yield pad
-        yield " {}".format(code)
+        yield " {}".format(key.code)
         if key_index < len(keymap) - 1:
             yield ","
             # This will be yielded on the next iteration when
             # we know that we're not at the end of a line.
-            pad = " " * (col_widths[col] - len(code))
-        prev_row_index = row_index
+            pad = " " * (col_widths[col] - len(key.code))
+        prev_row_index = key.row_index
         col += 1
 
 
@@ -746,12 +751,159 @@ gH8WVgd6JOrltfzBTGPKPgBEbtGXOHWffgAAAABJRU5ErkJggg==
 """.strip().split("\n")))
 
 
+BASE_KEY_SIZE = 96
+
+
 KEY_SIZES = [
-    (128, 128),  # default
-    (192, 128),  # 1.5 wide
-    (128, 192),  # 1.5 high
-    (128, 256),  # 2 high
+    (BASE_KEY_SIZE, BASE_KEY_SIZE),             # default
+    (int(BASE_KEY_SIZE * 1.5), BASE_KEY_SIZE),  # 1.5 wide
+    (BASE_KEY_SIZE, int(BASE_KEY_SIZE * 1.5)),  # 1.5 high
+    (BASE_KEY_SIZE, BASE_KEY_SIZE * 2),         # 2 high
 ]
+
+
+KEY_TEXT_REL_POS = [
+    (0.5 , 0.45, 'black'),
+    (0.5 , 0.27, 'green'),
+    (0.5 , 0.67, 'red'),
+    (0.25, 0.45, 'orange'),
+    (0.75, 0.45, 'blue'),
+    (0.25, 0.27, 'cyan'),
+    (0.75, 0.27, 'yellow'),
+    (0.75, 0.67, 'purple'),
+]
+
+
+KEY_TEXT_SYMBOLS = {
+    'acut' : "´",
+    'ae'   : "Ä",
+    'ampr' : "&",
+    'app'  : "APP",
+    'astr' : "*",
+    'at'   : "@",
+    'bsls' : "\\",
+    'bspc' : "BSPC",
+    'circ' : "^",
+    'coln' : ":",
+    'comm' : ",",
+    'delt' : "DEL",
+    'dlr'  : "$",
+    'dot'  : ".",
+    'down' : "↓",
+    'dqot' : "\"",
+    'end'  : "END",
+    'enter': "⏎",
+    'eql'  : "=",
+    'esc'  : "ESC",
+    'euro' : "€",
+    'exlm' : "!",
+    'f1'   : "F1",
+    'f2'   : "F2",
+    'f3'   : "F3",
+    'f4'   : "F4",
+    'f5'   : "F5",
+    'f6'   : "F6",
+    'f7'   : "F7",
+    'f8'   : "F8",
+    'f9'   : "F9",
+    'f10'  : "F10",
+    'f11'  : "F11",
+    'f12'  : "F12",
+    'f13'  : "F13",
+    'f14'  : "F14",
+    'grv'  : "`",
+    'hash' : "#",
+    'home' : "HOME",     # "⌂",
+    'ins'  : "INS",
+    'lalt' : "LALT",
+    'lbrc' : "[",
+    'lcbr' : "{",
+    'lctl' : "LCTL",
+    'left' : "←",
+    'less' : "<",
+    'lgui' : "LGUI",
+    'lsft' : "LSHIFT",  # "⇧",
+    'rsft' : "RSHIFT",
+    'caps' : "CAPS",    # "⇪",  # is 'caps' correct ?
+    'm(um)': "UMS",
+    'mins' : "-",
+    'tg(1)': "TG(1)",
+    'tg(2)': "TG(2)",
+    'tg(3)': "TG(3)",
+    'tg(4)': "TG(4)",
+    'tg(5)': "TG(5)",
+    'tg(6)': "TG(6)",
+    'tg(7)': "TG(7)",
+    'tg(8)': "TG(8)",
+    'tg(9)': "TG(9)",
+    'to(1)': "TO(1)",
+    'to(2)': "TO(2)",
+    'to(3)': "TO(3)",
+    'to(4)': "TO(4)",
+    'to(5)': "TO(5)",
+    'to(6)': "TO(6)",
+    'to(7)': "TO(7)",
+    'to(8)': "TO(8)",
+    'to(9)': "TO(9)",
+    'mo(1)': "MO(1)",
+    'mo(2)': "MO(2)",
+    'mo(3)': "MO(3)",
+    'mo(4)': "MO(4)",
+    'mo(5)': "MO(5)",
+    'mo(6)': "MO(6)",
+    'mo(7)': "MO(7)",
+    'mo(8)': "MO(8)",
+    'mo(9)': "MO(9)",
+    'more' : ">",
+    'nlck' : "NUMLOCK",
+    'oe'   : "Ö",
+    'p0'   : "0",
+    'p1'   : "1",
+    'p2'   : "2",
+    'p3'   : "3",
+    'p4'   : "4",
+    'p5'   : "5",
+    'p6'   : "6",
+    'p7'   : "7",
+    'p8'   : "8",
+    'p9'   : "9",
+    'para' : "§",
+    'past' : "*",
+    'pcmm' : ",",
+    'pdot' : ".",
+    'pent' : "↵",
+    'peql' : "=",
+    'perc' : "%",
+    'pgdn' : "⇟",
+    'pgup' : "⇞",
+    'pipe' : "|",
+    'plus' : "+",
+    'pmns' : "-",
+    'pmns' : "-",
+    'ppls' : "+",
+    'psls' : "/",
+    'qst'  : "?",
+    'quot' : "'",
+    'ralt' : "RALT",
+    'rbrc' : "]",
+    'rcbr' : "}",
+    'rctl' : "RCTRL",
+    'rght' : "→",
+    'ring' : "°",
+    'lprn' : "(",
+    'rprn' : ")",
+    'scln' : ";",
+    'slsh' : "/",
+    'space': "SPACE",
+    'ss'   : "ß",
+    'tab'  : "TAB",
+    'tg(2)': "TG(2)",
+    'tg(2)': "TG(2)",
+    'tild' : "~",
+    'ue'   : "Ü",
+    'unds' : "_",
+    'up'   : "↑",
+}
 
 
 KEYBOARD_KEY_SIZES = {
@@ -798,8 +950,25 @@ KEYBOARD_KEY_POSITIONS_Y = {
 }
 
 
-def gen_keymap_image(config, keymaps):
-    from PIL import Image, ImageDraw, ImageOps
+def get_key_mappings(keymaps):
+    keys = collections.defaultdict(list)
+    for i, (layer_name, layer_keys) in enumerate(sorted(keymaps.items())):
+        assert layer_name.endswith("_" + str(i))
+        for key in list(layer_keys.values()):
+            keys[key.key_index].append(key)
+
+    return keys
+
+
+def gen_keymap_image(config, key_mappings):
+    from PIL import Image, ImageDraw, ImageOps, ImageFont
+
+    font_path = "/home/mbarkhau/LiberationMono-Regular.ttf"
+    # font_path = "/home/mbarkhau/Monoid-Regular.ttf"
+    font_size = int(round(BASE_KEY_SIZE / 5.2))
+    # TODO: calibrate font size based on loaded font
+    # TODO: fallback for missing glyphs
+    font = ImageFont.truetype(font_path, font_size)
 
     def paste(tgt_img, src_img, pos=(0, 0)):
         src_w, src_h = src_img.size
@@ -811,43 +980,58 @@ def gen_keymap_image(config, keymaps):
             y = tgt_h + y
         tgt_img.paste(src_img, (x, y, x + src_w, y + src_h), mask=src_img)
 
-    def gen_key_img(size=0, color=None):
+    def gen_key_img(mappings, size=0, color=None):
         base_img = Image.open(BytesIO(KEY_IMAGE_DATA))
 
         if isinstance(size, tuple):
-            width, height = size
+            key_width, key_height = size
         else:
-            width, height = KEY_SIZES[size]
-        center_x = width // 2
+            key_width, key_height = KEY_SIZES[size]
+        center_x = key_width // 2
         top = base_img.crop((16, 0, 32, 32))
         bottom = base_img.crop((16, 32, 32, 64))
         left = base_img.crop((0, 16, 16, 32))
         top_left = base_img.crop((0, 0, 32, 32))
         bottom_left = base_img.crop((0, 32, 32, 64))
 
-        key_img = Image.new('RGBA', size=(width, height))
+        key_img = Image.new('RGBA', size=(key_width, key_height))
         for offset in range(32, center_x, 16):
             paste(key_img, top, (offset, 0))
             paste(key_img, bottom, (offset, -32))
-        for offset in range(32, height - 16, 16):
+        for offset in range(32, key_height - 16, 16):
             paste(key_img, left, (0, offset))
 
         paste(key_img, top_left, (0, 0))
         paste(key_img, bottom_left, (0, -32))
-        mirrored = key_img.crop((0, 0, center_x, height))
+        mirrored = key_img.crop((0, 0, center_x, key_height))
         mirrored = ImageOps.mirror(mirrored)
         paste(key_img, mirrored, (center_x, 0))
-        if color:
-            bg_img = Image.new('RGBA', size=(width, height))
-            draw = ImageDraw.Draw(bg_img)
-            draw.rectangle([(8, 8), (width - 8, height - 8)], color)
-            del draw
-            paste(bg_img, key_img)
-            return bg_img
-        return key_img
 
-    #im = gen_key_img(size=0, color='#A11')
-    #im.save("test.png", "PNG")
+        bg_img = Image.new('RGBA', size=(key_width, key_height))
+        draw = ImageDraw.Draw(bg_img)
+        if color:
+            draw.rectangle([(8, 8), (key_width - 8, key_height - 8)], color)
+
+        for (rel_x, rel_y, color), mapping in zip(KEY_TEXT_REL_POS, mappings):
+            key_text = mapping.raw_code
+            if key_text.isupper() and len(key_text) > 1 and key_text.lower() not in KEY_TEXT_SYMBOLS:
+                print(key_text.lower())
+            key_text = KEY_TEXT_SYMBOLS.get(key_text.lower(), key_text)
+            text_width, text_height = draw.textsize(key_text, font=font)
+            text_x_pos = key_width * rel_x - text_width // 2
+            text_y_pos = key_height * rel_y - text_height // 2
+
+            draw.text(
+                (text_x_pos, text_y_pos),
+                key_text,
+                font=font,
+                fill=color,
+            )
+
+        del draw
+        paste(bg_img, key_img)
+
+        return bg_img
 
     layout_name = config['layout']
     key_sizes = KEYBOARD_KEY_SIZES[layout_name]
@@ -863,19 +1047,32 @@ def gen_keymap_image(config, keymaps):
                 'size': size,
                 'width': width,
                 'height': height,
-                'pos_x': int(key_pos_x[row_idx][col_idx] * 128),
-                'pos_y': int(key_pos_y[row_idx][col_idx] * 128),
+                'pos_x': int(key_pos_x[row_idx][col_idx] * BASE_KEY_SIZE),
+                'pos_y': int(key_pos_y[row_idx][col_idx] * BASE_KEY_SIZE),
+                'mappings': key_mappings[key_index],
             }
 
     keys = list(key_config.values())
     keymap_width = max(k['pos_x'] + k['width'] for k in keys)
     keymap_height = max(k['pos_y'] + k['height'] for k in keys)
     keymap_img = Image.new('RGBA', size=(keymap_width, keymap_height))
+
+    bg_img = Image.new('RGBA', size=(keymap_width, keymap_height))
+    draw = ImageDraw.Draw(bg_img)
+
+    draw.rectangle([(0, 0), (keymap_width, keymap_height)], 'white')
+    del draw
+    paste(keymap_img, bg_img)
+
     for key_index, key in key_config.items():
-        key_img = gen_key_img((key['width'], key['height']))
+        key_img = gen_key_img(key['mappings'], (key['width'], key['height']))
         paste(keymap_img, key_img, pos=(key['pos_x'], key['pos_y']))
 
-    keymap_img.save("keymap.png", 'PNG')
+    # TODO: base cropping off of minimum and positions
+    keymap_img = keymap_img.crop((BASE_KEY_SIZE // 2, 0, keymap_width, keymap_height))
+    keymap_img.save("keymap_tmp.png", 'PNG')
+    os.rename("keymap_tmp.png", "keymap.png")
+
 
 def main(argv=sys.argv[1:]):
     if not argv or '-h' in argv or '--help' in argv:
@@ -902,7 +1099,8 @@ def main(argv=sys.argv[1:]):
             fh.write(part)
 
     try:
-        gen_keymap_image(config, keymaps)
+        key_mappings = get_key_mappings(keymaps)
+        gen_keymap_image(config, key_mappings)
     except ImportError:
         print("ImportError 'PIL', Skipping image generation")
         print("    pip install pillow")
